@@ -1,2 +1,3 @@
 pub mod binance;
-pub mod bitmex;
+pub mod bitstamp;
+pub mod types;

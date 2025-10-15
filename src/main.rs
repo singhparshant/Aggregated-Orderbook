@@ -1,3 +1,5 @@
+use futures_util::StreamExt;
+use futures_util::stream::select;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -5,24 +7,34 @@ mod modules;
 
 #[tokio::main]
 async fn main() {
-    let binance_book: Arc<Mutex<Option<modules::binance::OrderBook>>> = Arc::new(Mutex::new(None));
-    let _bitstamp_book: Arc<Mutex<Option<modules::binance::OrderBook>>> =
-        Arc::new(Mutex::new(None));
+    // Optionally fetch snapshots first
+    let _bitstamp_snapshot = modules::bitstamp::get_bitstamp_snapshot("ethusdt").await;
 
-    let b1 = binance_book.clone();
-    // let binance_task = tokio::spawn(async move {
-    //     if let Err(e) = modules::binance::run_binance(b1).await {
-    //         eprintln!("binance error: {e}");
-    //     }
-    // });
-    // let _ = binance_task.await;
+    // Streams
+    let bitstamp_stream = modules::bitstamp::get_bitstamp_stream("ethusdt").await;
+    let binance_stream = modules::binance::get_binance_stream("ethusdt").await;
 
-    // Placeholder for other exchange integration
-    // let b2 = _bitstamp_book.clone();
-    // let bitstamp_task = tokio::spawn(async move {
-    //     if let Err(e) = run_bitstamp(b2).await {
-    //         eprintln!("bitstamp error: {e}");
-    //     }
-    // });
-    // let _ = bitstamp_task.await;
+    // Tag streams by source and combine
+    let bitstamp_tagged = bitstamp_stream.map(|m| ("bitstamp", m));
+    let binance_tagged = binance_stream.map(|m| ("binance", m));
+    let mut combined = select(bitstamp_tagged, binance_tagged);
+
+    while let Some((source, msg_result)) = combined.next().await {
+        match msg_result {
+            Ok(msg) => {
+                match source {
+                    "bitstamp" => {
+                        println!("bitstamp: {:?}", msg);
+                        // TODO: parse Bitstamp diff here
+                    }
+                    "binance" => {
+                        println!("binance: {:?}", msg);
+                        // TODO: parse Binance depth update here
+                    }
+                    _ => {}
+                }
+            }
+            Err(e) => eprintln!("{} stream error: {}", source, e),
+        }
+    }
 }
