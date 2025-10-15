@@ -1,4 +1,4 @@
-use futures_util::SinkExt;
+use crate::modules::types::Exchange;
 use futures_util::StreamExt;
 use futures_util::stream::SplitStream;
 use tokio::net::TcpStream;
@@ -29,7 +29,7 @@ pub async fn get_binance_snapshot(symbol: &str) -> OrderBook {
     let bidsJsonArray = data["bids"].as_array().unwrap();
     for bid in bidsJsonArray {
         bids.push(OrderLevel {
-            exchange: "binance",
+            exchange: Exchange::Binance.as_str(),
             price: bid[0].as_str().unwrap().parse::<f64>().unwrap(),
             amount: bid[1].as_str().unwrap().parse::<f64>().unwrap(),
         });
@@ -37,7 +37,7 @@ pub async fn get_binance_snapshot(symbol: &str) -> OrderBook {
     let asksJsonArray = data["asks"].as_array().unwrap();
     for ask in asksJsonArray {
         asks.push(OrderLevel {
-            exchange: "binance",
+            exchange: Exchange::Binance.as_str(),
             price: ask[0].as_str().unwrap().parse::<f64>().unwrap(),
             amount: ask[1].as_str().unwrap().parse::<f64>().unwrap(),
         });

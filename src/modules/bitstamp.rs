@@ -1,3 +1,4 @@
+use crate::modules::types::Exchange;
 use futures_util::SinkExt;
 use futures_util::StreamExt;
 use futures_util::stream::SplitStream;
@@ -25,7 +26,7 @@ pub async fn get_bitstamp_snapshot(symbol: &str) -> OrderBook {
     let bids = bids
         .iter()
         .map(|bid| OrderLevel {
-            exchange: "bitstamp",
+            exchange: Exchange::Bitstamp.as_str(),
             price: bid[0].as_str().unwrap().parse::<f64>().unwrap(),
             amount: bid[1].as_str().unwrap().parse::<f64>().unwrap(),
         })
@@ -33,7 +34,7 @@ pub async fn get_bitstamp_snapshot(symbol: &str) -> OrderBook {
     let asks = asks
         .iter()
         .map(|ask| OrderLevel {
-            exchange: "bitstamp",
+            exchange: Exchange::Bitstamp.as_str(),
             price: ask[0].as_str().unwrap().parse::<f64>().unwrap(),
             amount: ask[1].as_str().unwrap().parse::<f64>().unwrap(),
         })
