@@ -39,7 +39,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("  \"asks\": [");
                 for (i, ask) in summary.asks.iter().rev().enumerate() {
                     println!(
-                        "    {{ \"exchange\": \"{}\", \"price\": {:.2}, \"amount\": {:.4} }}{}",
+                        "    {{ \"exchange\": \"{}\", \"price\": {:.2}, \"quantity\": {:.4} }}{}",
                         ask.exchange,
                         ask.price,
                         ask.amount,
@@ -51,7 +51,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("  \"bids\": [");
                 for (i, bid) in summary.bids.iter().enumerate() {
                     println!(
-                        "    {{ \"exchange\": \"{}\", \"price\": {:.2}, \"amount\": {:.4} }}{}",
+                        "    {{ \"exchange\": \"{}\", \"price\": {:.2}, \"quantity\": {:.4} }}{}",
                         bid.exchange,
                         bid.price,
                         bid.amount,
