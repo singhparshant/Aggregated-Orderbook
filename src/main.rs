@@ -42,7 +42,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Start gRPC server
     let agg_for_grpc = Arc::clone(&agg_shared);
     let grpc_server = tokio::spawn(async move {
-        let addr = "127.0.0.1:5001".parse().unwrap();
+        let addr = "127.0.0.1:5002".parse().unwrap();
         let service = create_grpc_server(agg_for_grpc);
 
         tracing::info!("gRPC server starting on {}", addr);

@@ -16,7 +16,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt::init();
 
     // Connect to the gRPC server
-    let channel = Channel::from_static("http://127.0.0.1:5001")
+    let channel = Channel::from_static("http://127.0.0.1:5002")
         .connect()
         .await?;
     let mut client = OrderbookAggregatorClient::new(channel);
