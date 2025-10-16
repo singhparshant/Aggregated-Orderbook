@@ -1,7 +1,7 @@
 use crate::modules::types::{AggregatedOrderBook, OrderBook, OrderBookUpdate, OrderLevel};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-const PRICE_SCALE: f64 = 1_000_000_000.0; // matches examples: 100.0 -> 100_000_000_000
+const PRICE_SCALE: f64 = 1_000_000_000.0;
 
 impl AggregatedOrderBook {
     pub fn new() -> Self {
