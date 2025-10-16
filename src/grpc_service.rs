@@ -26,6 +26,7 @@ impl OrderbookAggregatorService {
 
 #[tonic::async_trait]
 impl OrderbookAggregator for OrderbookAggregatorService {
+    // Not exactly sure what this is for or what it does, but it's required by the tonic library
     type BookSummaryStream =
         std::pin::Pin<Box<dyn futures::Stream<Item = Result<Summary, Status>> + Send + 'static>>;
 
@@ -79,7 +80,7 @@ impl OrderbookAggregator for OrderbookAggregatorService {
 
                 // Release the lock and wait
                 drop(agg);
-                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
             }
         };
 

@@ -29,8 +29,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut combined = select(bitstamp_tagged, binance_tagged);
 
     // Fetch snapshots
-    let bitstamp_snapshot = modules::bitstamp::get_bitstamp_snapshot(symbol).await;
     let binance_snapshot = modules::binance::get_binance_snapshot(symbol).await;
+    let bitstamp_snapshot = modules::bitstamp::get_bitstamp_snapshot(symbol).await;
 
     // Merge into aggregated book
     let mut agg = AggregatedOrderBook::new();

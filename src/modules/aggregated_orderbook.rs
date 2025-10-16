@@ -13,6 +13,18 @@ impl AggregatedOrderBook {
         }
     }
 
+    pub fn print_top10(&self) {
+        // Top 10 bids (highest first)
+        println!("Top 10 bids:");
+        for (price_idx, exchange_map) in self.bids.iter().rev().take(10) {
+            println!("{:#?} {:#?}", price_idx, exchange_map);
+        }
+        println!("Top 10 asks:");
+        for (price_idx, exchange_map) in self.asks.iter().take(10) {
+            println!("{:#?} {:#?}", price_idx, exchange_map);
+        }
+    }
+
     pub fn get_spread(&self) -> f64 {
         self.spread
     }
@@ -50,6 +62,7 @@ impl AggregatedOrderBook {
                         .insert(ex.to_lowercase(), snapshot.last_update_id);
                 }
             }
+            self.print_top10();
         }
 
         Self::prune_top_n(&mut self.bids, 10, true);

@@ -1,0 +1,1 @@
+This is the rust implementation of keyrock test task.

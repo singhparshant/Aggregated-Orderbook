@@ -7,14 +7,6 @@ use crate::modules::types::{OrderBook, OrderLevel};
 use serde_json::Value;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async};
 
-#[derive(Clone, Debug)]
-pub struct BinanceDiff {
-    pub u_first: u64, // U
-    pub u_last: u64,  // u
-    pub bids: Vec<(f64, f64)>,
-    pub asks: Vec<(f64, f64)>,
-}
-
 pub async fn get_binance_snapshot(symbol: &str) -> OrderBook {
     let url = format!(
         "https://api.binance.com/api/v3/depth?symbol={}&limit=1000",
@@ -52,7 +44,7 @@ pub async fn get_binance_snapshot(symbol: &str) -> OrderBook {
 pub async fn get_binance_stream(
     symbol: &str,
 ) -> SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>> {
-    let url = format!("wss://stream.binance.com:9443/ws/{}@depth@100ms", symbol);
+    let url = format!("wss://stream.binance.com:9443/ws/{}@depth@1000ms", symbol);
     let (ws_stream, _) = connect_async(url).await.unwrap();
     let (_, read) = ws_stream.split();
     read
