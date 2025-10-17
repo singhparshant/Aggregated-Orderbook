@@ -76,6 +76,7 @@ impl OrderBookUpdate {
         Self::parse_bitstamp(&v)
     }
 
+    // Parse the diff of the orderbook from Binance.
     fn parse_binance_diff(v: &Value) -> Option<Self> {
         let bids = v.get("b")?.as_array()?;
         let asks = v.get("a")?.as_array()?;

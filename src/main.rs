@@ -17,16 +17,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize tracing
     tracing_subscriber::fmt::init();
 
-    let symbol = "ethusdt";
+    let symbol = "btcusdc";
 
-    // Streams
-    let bitstamp_stream = modules::bitstamp::get_bitstamp_stream(symbol).await;
-    let binance_stream = modules::binance::get_binance_stream(symbol).await;
-
-    // Tag streams by source and combine
-    let bitstamp_tagged = bitstamp_stream.map(|m| (Exchange::Bitstamp.as_str(), m));
-    let binance_tagged = binance_stream.map(|m| (Exchange::Binance.as_str(), m));
-    let mut combined = select(bitstamp_tagged, binance_tagged);
+    // Streams will be created in the websocket task loop for reconnection handling
 
     // Fetch snapshots
     let binance_snapshot = modules::binance::get_binance_snapshot(symbol).await;
@@ -76,43 +69,129 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     //     }
     // }
 
+    // Listen to the combined stream and handle the updates
     let websocket_task = tokio::spawn(async move {
-        while let Some((source, msg_result)) = combined.next().await {
-            match msg_result {
-                Ok(msg) => match source {
-                    "bitstamp" => match msg {
-                        Message::Text(text) => {
-                            if let Some(update) = OrderBookUpdate::from_bitstamp_json(&text) {
-                                tracing::info!(
-                                    "Received Bitstamp update: {} bids, {} asks",
-                                    update.bids.len(),
-                                    update.asks.len()
-                                );
-                                let mut agg = agg_for_websocket.lock().await;
-                                agg.handle_update(update);
+        loop {
+            // Recreate streams on each iteration
+            let bitstamp_stream = modules::bitstamp::get_bitstamp_stream(symbol).await;
+            let binance_stream = modules::binance::get_binance_stream(symbol).await;
+
+            // Tag streams by source and combine
+            let bitstamp_tagged = bitstamp_stream.map(|m| (Exchange::Bitstamp.as_str(), m));
+            let binance_tagged = binance_stream.map(|m| (Exchange::Binance.as_str(), m));
+            let mut combined = select(bitstamp_tagged, binance_tagged);
+
+            tracing::info!("Connected to exchanges");
+
+            while let Some((source, msg_result)) = combined.next().await {
+                match msg_result {
+                    Ok(msg) => match source {
+                        "bitstamp" => match msg {
+                            Message::Text(text) => {
+                                if let Some(update) = OrderBookUpdate::from_bitstamp_json(&text) {
+                                    let start = std::time::Instant::now();
+                                    tracing::info!(
+                                        "Received Bitstamp update: {} bids, {} asks (ID: {})",
+                                        update.bids.len(),
+                                        update.asks.len(),
+                                        update.update_id
+                                    );
+                                    let mut agg = agg_for_websocket.lock().await;
+                                    match agg.handle_update(update) {
+                                        Ok(_) => {
+                                            let duration = start.elapsed();
+                                            tracing::info!(
+                                                "Bitstamp update took {}us to apply successfully",
+                                                duration.as_micros()
+                                            );
+                                        }
+                                        Err(e) => {
+                                            let duration = start.elapsed();
+                                            tracing::error!(
+                                                "Bitstamp update failed after {}us: {}",
+                                                duration.as_micros(),
+                                                e
+                                            );
+                                        }
+                                    }
+                                }
                             }
-                        }
+                            Message::Ping(payload) => {
+                                tracing::debug!("Received ping from Bitstamp, sending pong");
+                                // Note: tungstenite handles pong automatically for ping frames
+                            }
+                            Message::Pong(_) => {
+                                tracing::debug!("Received pong from Bitstamp");
+                            }
+                            Message::Close(_) => {
+                                tracing::warn!("Bitstamp connection closed, will reconnect");
+                                break; // Exit inner loop to reconnect
+                            }
+                            _ => {}
+                        },
+                        "binance" => match msg {
+                            Message::Text(text) => {
+                                if let Some(update) = OrderBookUpdate::from_binance_json(&text) {
+                                    let start = std::time::Instant::now();
+                                    tracing::info!(
+                                        "Received Binance update: {} bids, {} asks (ID: {})",
+                                        update.bids.len(),
+                                        update.asks.len(),
+                                        update.update_id
+                                    );
+                                    let mut agg = agg_for_websocket.lock().await;
+                                    match agg.handle_update(update) {
+                                        Ok(_) => {
+                                            let duration = start.elapsed();
+                                            tracing::info!(
+                                                "Binance update took {}us to apply successfully",
+                                                duration.as_micros()
+                                            );
+                                        }
+                                        Err(e) => {
+                                            let duration = start.elapsed();
+                                            tracing::error!(
+                                                "Binance update failed after {}us: {}",
+                                                duration.as_micros(),
+                                                e
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                            Message::Ping(payload) => {
+                                tracing::debug!("Received ping from Binance, sending pong");
+                            }
+                            Message::Pong(_) => {
+                                tracing::debug!("Received pong from Binance");
+                            }
+                            Message::Close(_) => {
+                                tracing::warn!("Binance connection closed, will reconnect");
+                                break; // Exit inner loop to reconnect
+                            }
+                            _ => {}
+                        },
                         _ => {}
                     },
-                    "binance" => match msg {
-                        Message::Text(text) => {
-                            // println!("Received Binance update: {}", text);
-                            if let Some(update) = OrderBookUpdate::from_binance_json(&text) {
-                                tracing::info!(
-                                    "Received Binance update: {} bids, {} asks",
-                                    update.bids.len(),
-                                    update.asks.len()
-                                );
-                                let mut agg = agg_for_websocket.lock().await;
-                                agg.handle_update(update);
-                            }
-                        }
-                        _ => {}
-                    },
-                    _ => {}
-                },
-                Err(e) => eprintln!("{} stream error: {}", source, e),
+                    Err(e) => {
+                        tracing::error!("{} stream error: {}, will reconnect", source, e);
+                        break; // Exit inner loop to reconnect
+                    }
+                }
             }
+
+            // Reconnection delay
+            tracing::info!("Reconnecting to exchanges in 2 seconds...");
+            tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+
+            // On disconnection, fetch new snapshots and merge them
+            tracing::info!("Disconnected from exchanges, fetching new snapshots...");
+            let binance_snapshot = modules::binance::get_binance_snapshot(symbol).await;
+            let bitstamp_snapshot = modules::bitstamp::get_bitstamp_snapshot(symbol).await;
+
+            let mut agg = agg_for_websocket.lock().await;
+            agg.merge_snapshots(vec![bitstamp_snapshot, binance_snapshot]);
+            tracing::info!("Merged new snapshots after disconnection");
         }
     });
 

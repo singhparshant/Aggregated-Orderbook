@@ -39,36 +39,27 @@ impl OrderbookAggregator for OrderbookAggregatorService {
         let stream = try_stream! {
             loop {
                 let agg = agg_shared.lock().await;
-                let summary = agg.get_aggregated_orderbook();
 
-                // Convert to gRPC format - limit to exactly 10 levels each
-                let mut bids = Vec::new();
-                let mut asks = Vec::new();
+                // Get top 10 levels from the aggregated orderbook
+                let top10_bids = agg.get_top10_bids();
+                let top10_asks = agg.get_top10_asks();
+                let spread = agg.get_spread();
 
-                // Convert bids (highest prices first) - take only top 10
-                for (_price_idx, exchange_map) in summary.bids.iter().rev().take(10) {
-                    for (exchange, level) in exchange_map {
-                        bids.push(Level {
-                            exchange: exchange.clone(),
-                            price: level.price,
-                            amount: level.amount,
-                        });
-                    }
-                }
+                // Convert to gRPC format
+                let bids: Vec<Level> = top10_bids.into_iter().map(|level| Level {
+                    exchange: level.exchange.to_string(),
+                    price: level.price,
+                    amount: level.amount,
+                }).collect();
 
-                // Convert asks (lowest prices first) - take only top 10
-                for (_price_idx, exchange_map) in summary.asks.iter().take(10) {
-                    for (exchange, level) in exchange_map {
-                        asks.push(Level {
-                            exchange: exchange.clone(),
-                            price: level.price,
-                            amount: level.amount,
-                        });
-                    }
-                }
+                let asks: Vec<Level> = top10_asks.into_iter().map(|level| Level {
+                    exchange: level.exchange.to_string(),
+                    price: level.price,
+                    amount: level.amount,
+                }).collect();
 
                 let summary = Summary {
-                    spread: summary.spread,
+                    spread,
                     asks,
                     bids,
                 };
@@ -80,6 +71,8 @@ impl OrderbookAggregator for OrderbookAggregatorService {
 
                 // Release the lock and wait
                 drop(agg);
+
+                // Sleep for 1 second
                 tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
             }
         };
