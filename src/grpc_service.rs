@@ -41,30 +41,29 @@ impl OrderbookAggregator for OrderbookAggregatorService {
                 let agg = agg_shared.lock().await;
 
                 // Get top 10 levels from the aggregated orderbook
-                let top10_bids = agg.get_top10_bids();
-                let top10_asks = agg.get_top10_asks();
-                let spread = agg.get_spread();
+                // Take an atomic snapshot (bids, asks, spread from same moment)
+                let snap = agg.get_top10_snapshot();
 
                 // Convert to gRPC format
-                let bids: Vec<Level> = top10_bids.into_iter().map(|level| Level {
+                let bids: Vec<Level> = snap.bids.into_iter().map(|level| Level {
                     exchange: level.exchange.to_string(),
                     price: level.price,
                     amount: level.amount,
                 }).collect();
 
-                let asks: Vec<Level> = top10_asks.into_iter().map(|level| Level {
+                let asks: Vec<Level> = snap.asks.into_iter().map(|level| Level {
                     exchange: level.exchange.to_string(),
                     price: level.price,
                     amount: level.amount,
                 }).collect();
 
                 let summary = Summary {
-                    spread,
+                    spread: snap.spread,
                     asks,
                     bids,
                 };
 
-                tracing::debug!("Sending summary: {} bids, {} asks, spread: {:.4}",
+                tracing::debug!("Sending snapshot: {} bids, {} asks, spread: {:.4}",
                     summary.bids.len(), summary.asks.len(), summary.spread);
 
                 yield summary;

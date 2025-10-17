@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Instant;
 
 use futures_util::StreamExt;
 use futures_util::stream::select;
@@ -17,19 +18,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize tracing
     tracing_subscriber::fmt::init();
 
-    let symbol = "btcusdc";
+    let symbol = "ethbtc";
 
-    // Streams will be created in the websocket task loop for reconnection handling
-
-    // Fetch snapshots
-    let binance_snapshot = modules::binance::get_binance_snapshot(symbol).await;
-    let bitstamp_snapshot = modules::bitstamp::get_bitstamp_snapshot(symbol).await;
-
-    // Merge into aggregated book
-    let mut agg = AggregatedOrderBook::new();
-    agg.merge_snapshots(vec![bitstamp_snapshot, binance_snapshot]);
-
-    // Share the aggregated orderbook between threads
+    // Create empty aggregated orderbook initially
+    let agg = AggregatedOrderBook::new();
     let agg_shared = Arc::new(Mutex::new(agg));
 
     // Start gRPC server
@@ -72,9 +64,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Listen to the combined stream and handle the updates
     let websocket_task = tokio::spawn(async move {
         loop {
-            // Recreate streams on each iteration
+            // Connect to streams first to avoid diff gap
+            tracing::info!("Connecting to exchange streams...");
             let bitstamp_stream = modules::bitstamp::get_bitstamp_stream(symbol).await;
             let binance_stream = modules::binance::get_binance_stream(symbol).await;
+
+            // Then fetch fresh snapshots concurrently and merge
+            let snapshot_start = Instant::now();
+            tracing::info!("Fetching fresh snapshots in parallel after connecting streams...");
+            let (binance_snapshot, bitstamp_snapshot) = tokio::join!(
+                modules::binance::get_binance_snapshot(symbol),
+                modules::bitstamp::get_bitstamp_snapshot(symbol)
+            );
+            tracing::info!(
+                "Snapshots fetched in parallel in {}ms",
+                snapshot_start.elapsed().as_millis()
+            );
+            {
+                let mut agg = agg_for_websocket.lock().await;
+                agg.merge_snapshots(vec![bitstamp_snapshot, binance_snapshot]);
+                tracing::info!("Snapshots merged into aggregated orderbook");
+            }
 
             // Tag streams by source and combine
             let bitstamp_tagged = bitstamp_stream.map(|m| (Exchange::Bitstamp.as_str(), m));
@@ -89,34 +99,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         "bitstamp" => match msg {
                             Message::Text(text) => {
                                 if let Some(update) = OrderBookUpdate::from_bitstamp_json(&text) {
-                                    let start = std::time::Instant::now();
                                     tracing::info!(
-                                        "Received Bitstamp update: {} bids, {} asks (ID: {})",
+                                        "Received Bitstamp update: {:?} bids, {:?} asks (ID: {})",
                                         update.bids.len(),
                                         update.asks.len(),
                                         update.update_id
                                     );
                                     let mut agg = agg_for_websocket.lock().await;
+                                    let bitstamp_update_start = Instant::now();
                                     match agg.handle_update(update) {
                                         Ok(_) => {
-                                            let duration = start.elapsed();
                                             tracing::info!(
-                                                "Bitstamp update took {}us to apply successfully",
-                                                duration.as_micros()
+                                                "Bitstamp update took {}ms to apply successfully",
+                                                bitstamp_update_start.elapsed().as_millis()
                                             );
                                         }
                                         Err(e) => {
-                                            let duration = start.elapsed();
                                             tracing::error!(
-                                                "Bitstamp update failed after {}us: {}",
-                                                duration.as_micros(),
+                                                "Bitstamp update failed after {}ms: {}",
+                                                bitstamp_update_start.elapsed().as_millis(),
                                                 e
                                             );
                                         }
                                     }
+                                    // println!(
+                                    //     "After bitstamp update: {:?}",
+                                    //     agg.get_top10_snapshot()
+                                    // );
+                                    println!("Spread after bitstamp update: {:.8}", agg.spread);
                                 }
                             }
-                            Message::Ping(payload) => {
+                            Message::Ping(_payload) => {
                                 tracing::debug!("Received ping from Bitstamp, sending pong");
                                 // Note: tungstenite handles pong automatically for ping frames
                             }
@@ -132,34 +145,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         "binance" => match msg {
                             Message::Text(text) => {
                                 if let Some(update) = OrderBookUpdate::from_binance_json(&text) {
-                                    let start = std::time::Instant::now();
                                     tracing::info!(
-                                        "Received Binance update: {} bids, {} asks (ID: {})",
+                                        "Received Binance update: {:?} bids, {:?} asks (ID: {})",
                                         update.bids.len(),
                                         update.asks.len(),
                                         update.update_id
                                     );
                                     let mut agg = agg_for_websocket.lock().await;
+                                    let binance_update_start = Instant::now();
                                     match agg.handle_update(update) {
                                         Ok(_) => {
-                                            let duration = start.elapsed();
                                             tracing::info!(
-                                                "Binance update took {}us to apply successfully",
-                                                duration.as_micros()
+                                                "Binance update took {}ms to apply successfully",
+                                                binance_update_start.elapsed().as_millis()
                                             );
                                         }
                                         Err(e) => {
-                                            let duration = start.elapsed();
                                             tracing::error!(
-                                                "Binance update failed after {}us: {}",
-                                                duration.as_micros(),
+                                                "Binance update failed after {}ms: {}",
+                                                binance_update_start.elapsed().as_millis(),
                                                 e
                                             );
                                         }
                                     }
+                                    // println!(
+                                    //     "After binance update: {:?}",
+                                    //     agg.get_top10_snapshot()
+                                    // );
+                                    println!("Spread after binance update: {:.8}", agg.spread);
                                 }
                             }
-                            Message::Ping(payload) => {
+                            Message::Ping(_payload) => {
                                 tracing::debug!("Received ping from Binance, sending pong");
                             }
                             Message::Pong(_) => {
@@ -184,10 +200,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             tracing::info!("Reconnecting to exchanges in 2 seconds...");
             tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
-            // On disconnection, fetch new snapshots and merge them
-            tracing::info!("Disconnected from exchanges, fetching new snapshots...");
-            let binance_snapshot = modules::binance::get_binance_snapshot(symbol).await;
-            let bitstamp_snapshot = modules::bitstamp::get_bitstamp_snapshot(symbol).await;
+            // On disconnection, fetch new snapshots in parallel and merge them
+            tracing::info!("Disconnected from exchanges, fetching fresh snapshots in parallel...");
+            let start = std::time::Instant::now();
+
+            // Fetch both snapshots concurrently
+            let (binance_snapshot, bitstamp_snapshot) = tokio::join!(
+                modules::binance::get_binance_snapshot(symbol),
+                modules::bitstamp::get_bitstamp_snapshot(symbol)
+            );
+
+            let snapshot_duration = start.elapsed();
+            tracing::info!(
+                "Reconnection snapshots fetched in parallel in {}ms",
+                snapshot_duration.as_millis()
+            );
 
             let mut agg = agg_for_websocket.lock().await;
             agg.merge_snapshots(vec![bitstamp_snapshot, binance_snapshot]);

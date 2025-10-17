@@ -1,7 +1,14 @@
 use crate::modules::types::{AggregatedOrderBook, OrderBook, OrderBookUpdate, OrderLevel};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-const PRICE_SCALE: f64 = 1_000_000_00.0;
+const PRICE_SCALE: f64 = 1_000_000_000.0;
+
+#[derive(Clone, Debug)]
+pub struct Top10Snapshot {
+    pub spread: f64,
+    pub bids: Vec<OrderLevel>,
+    pub asks: Vec<OrderLevel>,
+}
 
 impl AggregatedOrderBook {
     pub fn new() -> Self {
@@ -23,22 +30,6 @@ impl AggregatedOrderBook {
         for (price_idx, exchange_map) in self.asks.iter().take(10) {
             println!("{:#?} {:#?}", price_idx, exchange_map);
         }
-    }
-
-    pub fn get_spread(&self) -> f64 {
-        self.spread
-    }
-
-    pub fn get_bids(&self) -> BTreeMap<usize, HashMap<String, OrderLevel>> {
-        self.bids.clone()
-    }
-
-    pub fn get_asks(&self) -> BTreeMap<usize, HashMap<String, OrderLevel>> {
-        self.asks.clone()
-    }
-
-    pub fn get_last_update_id(&self) -> HashMap<String, u64> {
-        self.last_update_id.clone()
     }
 
     pub fn merge_snapshots(&mut self, snapshots: Vec<OrderBook>) {
@@ -65,7 +56,9 @@ impl AggregatedOrderBook {
             self.print_top10();
         }
 
-        self.recompute_spread();
+        if let Err(e) = self.try_recompute_spread() {
+            tracing::error!("Failed to recompute spread: {}", e);
+        }
     }
 
     /// Handle update with robust error handling and retries
@@ -200,6 +193,41 @@ impl AggregatedOrderBook {
             }
         }
 
+        // Validate update ID sequencing
+        let exchange_key = update.exchange.to_lowercase();
+        if let Some(&last_id) = self.last_update_id.get(&exchange_key) {
+            match update.exchange {
+                "binance" => {
+                    // For Binance, the "u" value (final update ID) should be greater than our last update ID
+                    if update.update_id <= last_id {
+                        tracing::warn!(
+                            "Binance update ID {} is not greater than last ID {}",
+                            update.update_id,
+                            last_id
+                        );
+                        return Ok(());
+                    }
+                }
+                "bitstamp" => {
+                    // For Bitstamp, the update ID should be greater than our last update ID
+                    if update.update_id <= last_id {
+                        tracing::warn!(
+                            "Bitstamp update ID {} is not greater than last ID {}",
+                            update.update_id,
+                            last_id
+                        );
+                        return Ok(());
+                    }
+                }
+                _ => {
+                    // For other exchanges, just ensure it's greater
+                    if update.update_id <= last_id {
+                        return Ok(());
+                    }
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -230,15 +258,35 @@ impl AggregatedOrderBook {
 
     /// Try to recompute spread with error handling
     fn try_recompute_spread(&mut self) -> Result<(), String> {
-        let best_bid = self.bids.keys().rev().next().copied();
-        let best_ask = self.asks.keys().next().copied();
+        let best_bid_idx = self.bids.keys().rev().next().copied().unwrap_or(0);
+        let best_ask_idx = self.asks.keys().next().copied().unwrap_or(0);
 
-        self.spread = if let (Some(bid_price), Some(ask_price)) = (best_bid, best_ask) {
-            let spread = (ask_price as f64 - bid_price as f64) / PRICE_SCALE;
-            spread
-        } else {
-            0.0
-        };
+        // Get the best bid price and exchange
+        let best_bid_price = best_bid_idx as f64 / PRICE_SCALE;
+        let best_bid_exchanges: Vec<String> = self
+            .bids
+            .get(&best_bid_idx)
+            .map(|exchange_map| exchange_map.keys().cloned().collect())
+            .unwrap_or_default();
+
+        // Get the best ask price and exchange
+        let best_ask_price = best_ask_idx as f64 / PRICE_SCALE;
+        let best_ask_exchanges: Vec<String> = self
+            .asks
+            .get(&best_ask_idx)
+            .map(|exchange_map| exchange_map.keys().cloned().collect())
+            .unwrap_or_default();
+
+        println!(
+            "Best bid: {:.8} (exchanges: {:?})",
+            best_bid_price, best_bid_exchanges
+        );
+        println!(
+            "Best ask: {:.8} (exchanges: {:?})",
+            best_ask_price, best_ask_exchanges
+        );
+        self.spread = (best_ask_idx as f64 - best_bid_idx as f64) / PRICE_SCALE;
+        println!("Spread: {:.8}", self.spread);
 
         Ok(())
     }
@@ -252,25 +300,59 @@ impl AggregatedOrderBook {
         }
     }
 
-    pub fn get_top10_bids(&self) -> Vec<OrderLevel> {
-        let mut result = Vec::new();
-        for (_price_idx, exchange_map) in self.bids.iter().rev().take(10) {
-            for level in exchange_map.values() {
-                result.push(level.clone());
-            }
+    pub fn get_top10_snapshot(&self) -> Top10Snapshot {
+        // Write price levels and exchanges for bids to file
+        // let mut output = String::new();
+        // output.push_str("Bids (price level -> exchanges):\n");
+        // for (price_idx, exchange_map) in self.bids.iter() {
+        //     let exchanges: Vec<String> = exchange_map.keys().cloned().collect();
+        //     output.push_str(&format!(
+        //         "  Price Level {}: Exchanges {:?}\n",
+        //         price_idx, exchanges
+        //     ));
+        // }
+
+        // // Write price levels and exchanges for asks to file
+        // output.push_str("Asks (price level -> exchanges):\n");
+        // for (price_idx, exchange_map) in self.asks.iter() {
+        //     let exchanges: Vec<String> = exchange_map.keys().cloned().collect();
+        //     output.push_str(&format!(
+        //         "  Price Level {}: Exchanges {:?}\n",
+        //         price_idx, exchanges
+        //     ));
+        // }
+        // output.push_str(&format!("Spread: {:#?}\n", self.spread));
+
+        // Write to file
+        // if let Err(e) = std::fs::write("out.txt", output) {
+        //     eprintln!("Failed to write to out.txt: {}", e);
+        // }
+
+        // Get top 10 price levels for bids (highest prices first)
+        let bid_levels: Vec<OrderLevel> = self
+            .bids
+            .iter()
+            .rev()
+            .take(10) // Take first 10 price levels
+            .flat_map(|(_, exchange_map)| exchange_map.values().cloned())
+            .collect();
+
+        // Get top 10 price levels for asks (lowest prices first)
+        let ask_levels: Vec<OrderLevel> = self
+            .asks
+            .iter()
+            .take(10) // Take first 10 price levels
+            .flat_map(|(_, exchange_map)| exchange_map.values().cloned())
+            .collect();
+
+        Top10Snapshot {
+            spread: self.spread,
+            bids: bid_levels,
+            asks: ask_levels,
         }
-        result
     }
 
-    pub fn get_top10_asks(&self) -> Vec<OrderLevel> {
-        let mut result = Vec::new();
-        for (_price_idx, exchange_map) in self.asks.iter().take(10) {
-            for level in exchange_map.values() {
-                result.push(level.clone());
-            }
-        }
-        result
-    }
+    // Removed invalid helper that attempted to return Vec<OrderLevel> into BTreeMap fields
 
     #[inline]
     fn price_index(price: f64) -> usize {
@@ -302,22 +384,6 @@ impl AggregatedOrderBook {
 
         let bucket = map.entry(idx).or_insert_with(HashMap::new);
         bucket.insert(exchange_key, level.clone());
-    }
-
-    // Recompute the spread of the orderbook.
-    fn recompute_spread(&mut self) {
-        // A BTreeMap sorts keys from low to high.
-        // To get the best bid (highest price), we reverse the iterator and take the first item.
-        let best_bid = self.bids.keys().rev().next().copied();
-
-        // To get the best ask (lowest price), we just take the first item.
-        let best_ask = self.asks.keys().next().copied();
-
-        self.spread = if let (Some(bid_price), Some(ask_price)) = (best_bid, best_ask) {
-            (ask_price as f64 - bid_price as f64) / PRICE_SCALE
-        } else {
-            0.0
-        };
     }
 }
 
@@ -380,7 +446,7 @@ mod tests {
         assert!(ask_bucket.contains_key("bitstamp"));
 
         // last_update_id per exchange set from snapshots
-        let last_ids = agg.get_last_update_id();
+        let last_ids = agg.last_update_id;
         assert_eq!(last_ids.get("binance"), Some(&111));
         assert_eq!(last_ids.get("bitstamp"), Some(&222));
     }
@@ -424,7 +490,7 @@ mod tests {
         assert_eq!(agg.asks.len(), 25, "Asks should have all 25 levels");
 
         // Test get_top10_bids returns highest 10 prices
-        let top10_bids = agg.get_top10_bids();
+        let top10_bids = agg.get_top10_snapshot().bids;
         assert_eq!(
             top10_bids.len(),
             10,
@@ -439,7 +505,7 @@ mod tests {
         assert_eq!(highest_bid.price, 100.0);
 
         // Test get_top10_asks returns lowest 10 prices
-        let top10_asks = agg.get_top10_asks();
+        let top10_asks = agg.get_top10_snapshot().asks;
         assert_eq!(
             top10_asks.len(),
             10,
