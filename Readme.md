@@ -78,5 +78,5 @@ cargo run --bin client
 ## Potential Improvements
 
 ### Memory Efficiency
-- **Current**: Maintains full order book, returns top 10 levels. We could consider pruning the order book to keep only top 10 levels to avoid excessive memory usage and improve performance(already implemented in the code, didn't enable yet).
-- **Improvement**: Consider using Vector instead of HashMap for 2 exchanges (minor optimization)
+- Maintains full order book, returns top 10 levels. We could consider pruning the order book to keep only top 10 levels to avoid excessive memory usage and improve performance(already implemented in the code, didn't enable yet).
+- Consider using Vector instead of HashMap for 2 exchanges (minor optimization)
