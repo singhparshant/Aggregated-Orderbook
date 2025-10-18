@@ -13,7 +13,7 @@ Real-time order book aggregation system that combines data from Binance and Bits
 ### 2. **Data Structure Design**
 - **BTreeMap** with scaled price levels as keys
 - **Value**: HashMap<exchange, OrderLevel> for each price bucket
-- **Why BTreeMap**: Keeps price levels naturally ordered (crucial for bid/ask ordering)
+- **Why BTreeMap**: Keeps price levels naturally ordered (important for bid/ask ordering)
 - **Why HashMap inside**: Allows multiple exchanges at the same price level
 
 ### 3. **Snapshot Merging**
@@ -23,14 +23,12 @@ Real-time order book aggregation system that combines data from Binance and Bits
 
 ### 4. **Concurrency Control**
 - **Read locks (RwLock)**: Multiple gRPC clients can read simultaneously
-- **Write locks (RwLock)**: Exclusive access for WebSocket updates
-- **Lock scope**: Minimized to prevent blocking
+- **Write locks (RwLock)**: Write access for WebSocket updates
 
 ### 5. **Disconnection Handling**
 - On any stream disconnection → restart from scratch
 - Fetch fresh snapshots again
 - Reconnect to both streams
-- Ensures data consistency after reconnection
 
 ### 6. **Update Processing**
 - Apply real-time updates to aggregated book
@@ -55,9 +53,6 @@ WebSocket Streams → Snapshot Fetch → Merge → Real-time Updates
 5. **Serve** top 10 bids/asks via gRPC streaming
 6. **Handle** disconnections by restarting the entire flow
 
-## Prerequisites
-- Rust toolchain (stable)
-- No manual proto step needed; Cargo runs `build.rs` which invokes `tonic-build`
 
 ## Build & Run
 
@@ -83,15 +78,5 @@ cargo run --bin client
 ## Potential Improvements
 
 ### Memory Efficiency
-- **Current**: Maintains full order book, returns top 10 levels
+- **Current**: Maintains full order book, returns top 10 levels. We could consider pruning the order book to keep only top 10 levels to avoid excessive memory usage and improve performance(already implemented in the code, didn't enable yet).
 - **Improvement**: Consider using Vector instead of HashMap for 2 exchanges (minor optimization)
-- **Trade-off**: HashMap provides O(1) exchange lookup vs Vector O(n) but with only 2 exchanges, difference is negligible
-
-### Production Readiness
-- **Error Handling**: More robust error recovery strategies
-- **Rate Limiting**: Handle high-frequency updates more efficiently  
-- **Monitoring**: Add metrics for update latency, connection health
-- **Configuration**: Make exchange endpoints and symbols configurable
-- **Testing**: Add comprehensive unit and integration tests
-- **Logging**: Structured logging with different levels
-- **Graceful Shutdown**: Proper cleanup on termination signals 
