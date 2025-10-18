@@ -20,15 +20,22 @@ impl AggregatedOrderBook {
         }
     }
 
-    pub fn print_top10(&self) {
-        // Top 10 bids (highest first)
-        println!("Top 10 bids:");
-        for (price_idx, exchange_map) in self.bids.iter().rev().take(10) {
-            println!("{:#?} {:#?}", price_idx, exchange_map);
+    /// Prune the orderbook to keep only top 20 bids and asks to avoid excessive memory usage
+    pub fn prune(&mut self) {
+        // Keep only top 20 bids (highest prices)
+        if self.bids.len() > 20 {
+            let keys_to_remove: Vec<usize> = self.bids.keys().rev().skip(20).cloned().collect();
+            for key in keys_to_remove {
+                self.bids.remove(&key);
+            }
         }
-        println!("Top 10 asks:");
-        for (price_idx, exchange_map) in self.asks.iter().take(10) {
-            println!("{:#?} {:#?}", price_idx, exchange_map);
+
+        // Keep only top 20 asks (lowest prices)
+        if self.asks.len() > 20 {
+            let keys_to_remove: Vec<usize> = self.asks.keys().skip(20).cloned().collect();
+            for key in keys_to_remove {
+                self.asks.remove(&key);
+            }
         }
     }
 
@@ -53,59 +60,45 @@ impl AggregatedOrderBook {
                         .insert(ex.to_lowercase(), snapshot.last_update_id);
                 }
             }
-            self.print_top10();
         }
 
         if let Err(e) = self.try_recompute_spread() {
             tracing::error!("Failed to recompute spread: {}", e);
         }
+
+        // Prune to keep only top 10 levels
+        // self.prune();
     }
 
     /// Handle update with robust error handling and retries
     pub fn handle_update(&mut self, update: OrderBookUpdate) -> Result<(), String> {
-        let max_retries = 3;
-        let mut retry_count = 0;
-
-        while retry_count < max_retries {
-            match self.try_apply_update(&update) {
-                Ok(_) => {
-                    tracing::debug!(
-                        "Successfully applied update for {} (ID: {})",
-                        update.exchange,
-                        update.update_id
-                    );
-                    return Ok(());
-                }
-                Err(e) => {
-                    retry_count += 1;
-                    tracing::warn!(
-                        "Failed to apply update for {} (ID: {}), attempt {}/{}: {}",
-                        update.exchange,
-                        update.update_id,
-                        retry_count,
-                        max_retries,
-                        e
-                    );
-
-                    if retry_count < max_retries {
-                        // Small delay before retry
-                        std::thread::sleep(std::time::Duration::from_millis(2));
-                    }
-                }
+        match self.try_apply_update(&update) {
+            Ok(_) => {
+                tracing::debug!(
+                    "Successfully applied update for {} (ID: {})",
+                    update.exchange,
+                    update.update_id
+                );
+                // Prune to keep only top 10 levels
+                // self.prune();
+                Ok(())
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to apply update for {} (ID: {}): {}",
+                    update.exchange,
+                    update.update_id,
+                    e
+                );
+                Err(e)
             }
         }
-
-        Err(format!(
-            "Failed to apply update for {} (ID: {}) after {} retries",
-            update.exchange, update.update_id, max_retries
-        ))
     }
 
     /// Try to apply update with error handling
     fn try_apply_update(&mut self, update: &OrderBookUpdate) -> Result<(), String> {
-        // Only apply update if the updat id is greater than the last update id, else return ok
-        let validation_result = self.validate_update(update);
-        if let Err(e) = validation_result {
+        // Only apply update if the update id is greater than the last update id; otherwise ignore
+        if self.validate_update(update).is_err() {
             return Ok(());
         }
 
@@ -115,7 +108,6 @@ impl AggregatedOrderBook {
 
         // Apply bids with error handling and detailed logging
         for level in update.bids.iter() {
-            let old_count = self.bids.len();
             if let Err(e) = Self::try_upsert_level(&mut self.bids, level) {
                 tracing::error!(
                     "Failed to upsert bid level: {} (price: {}, amount: {})",
@@ -125,20 +117,10 @@ impl AggregatedOrderBook {
                 );
                 return Err(format!("Failed to upsert bid level: {}", e));
             }
-            let new_count = self.bids.len();
-            tracing::debug!(
-                "Bid update: {} {} -> {} (price: {}, amount: {})",
-                update.exchange,
-                level.price,
-                level.amount,
-                old_count,
-                new_count
-            );
         }
 
         // Apply asks with error handling and detailed logging
         for level in update.asks.iter() {
-            let old_count = self.asks.len();
             if let Err(e) = Self::try_upsert_level(&mut self.asks, level) {
                 tracing::error!(
                     "Failed to upsert ask level: {} (price: {}, amount: {})",
@@ -148,15 +130,6 @@ impl AggregatedOrderBook {
                 );
                 return Err(format!("Failed to upsert ask level: {}", e));
             }
-            let new_count = self.asks.len();
-            tracing::debug!(
-                "Ask update: {} {} -> {} (price: {}, amount: {})",
-                update.exchange,
-                level.price,
-                level.amount,
-                old_count,
-                new_count
-            );
         }
 
         // Recompute spread with error handling
@@ -269,27 +242,20 @@ impl AggregatedOrderBook {
             .map(|exchange_map| exchange_map.keys().cloned().collect())
             .unwrap_or_default();
 
-        println!(
+        tracing::debug!(
             "Best bid: {:.8} (exchanges: {:?})",
-            best_bid_price, best_bid_exchanges
+            best_bid_price,
+            best_bid_exchanges
         );
-        println!(
+        tracing::debug!(
             "Best ask: {:.8} (exchanges: {:?})",
-            best_ask_price, best_ask_exchanges
+            best_ask_price,
+            best_ask_exchanges
         );
         self.spread = (best_ask_idx as f64 - best_bid_idx as f64) / PRICE_SCALE;
-        println!("Spread: {:.8}", self.spread);
+        tracing::debug!("Spread: {:.8}", self.spread);
 
         Ok(())
-    }
-
-    pub fn get_aggregated_orderbook(&self) -> Self {
-        Self {
-            spread: self.spread,
-            bids: self.bids.clone(),
-            asks: self.asks.clone(),
-            last_update_id: self.last_update_id.clone(),
-        }
     }
 
     pub fn get_top10_snapshot(&self) -> Top10Snapshot {

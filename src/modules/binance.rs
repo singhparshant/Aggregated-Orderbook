@@ -1,10 +1,11 @@
 use crate::modules::types::Exchange;
 use futures_util::StreamExt;
-use futures_util::stream::SplitStream;
+use futures_util::stream::{SplitSink, SplitStream};
 use tokio::net::TcpStream;
 
 use crate::modules::types::{OrderBook, OrderLevel};
 use serde_json::Value;
+use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async};
 
 // Get the snapshot of the orderbook from Binance.
@@ -31,16 +32,16 @@ pub async fn get_binance_snapshot(symbol: &str) -> OrderBook {
     let body = response.text().await.unwrap();
     let data: Value = serde_json::from_str(&body).unwrap();
     let last_update_id = data["lastUpdateId"].as_u64().unwrap();
-    let bidsJsonArray = data["bids"].as_array().unwrap();
-    for bid in bidsJsonArray {
+    let bids_json_array = data["bids"].as_array().unwrap();
+    for bid in bids_json_array {
         bids.push(OrderLevel {
             exchange: Exchange::Binance.as_str(),
             price: bid[0].as_str().unwrap().parse::<f64>().unwrap(),
             amount: bid[1].as_str().unwrap().parse::<f64>().unwrap(),
         });
     }
-    let asksJsonArray = data["asks"].as_array().unwrap();
-    for ask in asksJsonArray {
+    let asks_json_array = data["asks"].as_array().unwrap();
+    for ask in asks_json_array {
         asks.push(OrderLevel {
             exchange: Exchange::Binance.as_str(),
             price: ask[0].as_str().unwrap().parse::<f64>().unwrap(),
@@ -57,9 +58,12 @@ pub async fn get_binance_snapshot(symbol: &str) -> OrderBook {
 // Get the stream of the orderbook from Binance.
 pub async fn get_binance_stream(
     symbol: &str,
-) -> SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>> {
-    let url = format!("wss://stream.binance.com:9443/ws/{}@depth@1000ms", symbol);
+) -> (
+    SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
+    SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
+) {
+    let url = format!("wss://stream.binance.com:9443/ws/{}@depth@100ms", symbol);
     let (ws_stream, _) = connect_async(url).await.unwrap();
-    let (_, read) = ws_stream.split();
-    read
+    let (write, read) = ws_stream.split();
+    (write, read)
 }

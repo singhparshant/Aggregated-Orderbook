@@ -1,7 +1,7 @@
 use crate::modules::types::Exchange;
 use futures_util::SinkExt;
 use futures_util::StreamExt;
-use futures_util::stream::SplitStream;
+use futures_util::stream::{SplitSink, SplitStream};
 use serde_json::Value;
 use tokio::net::TcpStream;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async, tungstenite::Message};
@@ -48,7 +48,10 @@ pub async fn get_bitstamp_snapshot(symbol: &str) -> OrderBook {
 
 pub async fn get_bitstamp_stream(
     symbol: &str,
-) -> SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>> {
+) -> (
+    SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
+    SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
+) {
     let ws_url_bitstamp = "wss://ws.bitstamp.net".to_string();
     let (mut ws_stream_bitstamp, _) = connect_async(&ws_url_bitstamp).await.unwrap();
     let subscribe_msg = serde_json::json!({
@@ -63,6 +66,6 @@ pub async fn get_bitstamp_stream(
     if res.is_err() {
         eprintln!("error sending subscribe message: {}", res.err().unwrap());
     }
-    let (_, read_stream) = ws_stream_bitstamp.split();
-    read_stream
+    let (write_stream, read_stream) = ws_stream_bitstamp.split();
+    (write_stream, read_stream)
 }

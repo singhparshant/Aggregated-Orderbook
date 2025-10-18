@@ -1,7 +1,7 @@
 use crate::modules::types::AggregatedOrderBook;
 use async_stream::try_stream;
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 use tonic::{Request, Response, Status};
 
 // Include the generated gRPC code
@@ -13,11 +13,11 @@ use orderbook::orderbook_aggregator_server::{OrderbookAggregator, OrderbookAggre
 use orderbook::{Empty, Level, Summary};
 
 pub struct OrderbookAggregatorService {
-    pub aggregated_orderbook: Arc<Mutex<AggregatedOrderBook>>,
+    pub aggregated_orderbook: Arc<RwLock<AggregatedOrderBook>>,
 }
 
 impl OrderbookAggregatorService {
-    pub fn new(aggregated_orderbook: Arc<Mutex<AggregatedOrderBook>>) -> Self {
+    pub fn new(aggregated_orderbook: Arc<RwLock<AggregatedOrderBook>>) -> Self {
         Self {
             aggregated_orderbook,
         }
@@ -38,7 +38,7 @@ impl OrderbookAggregator for OrderbookAggregatorService {
 
         let stream = try_stream! {
             loop {
-                let agg = agg_shared.lock().await;
+                let agg = agg_shared.read().await;
 
                 // Get top 10 levels from the aggregated orderbook
                 // Take an atomic snapshot (bids, asks, spread from same moment)
@@ -81,7 +81,7 @@ impl OrderbookAggregator for OrderbookAggregatorService {
 }
 
 pub fn create_grpc_server(
-    aggregated_orderbook: Arc<Mutex<AggregatedOrderBook>>,
+    aggregated_orderbook: Arc<RwLock<AggregatedOrderBook>>,
 ) -> OrderbookAggregatorServer<OrderbookAggregatorService> {
     let service = OrderbookAggregatorService::new(aggregated_orderbook);
     OrderbookAggregatorServer::new(service)

@@ -1,9 +1,10 @@
 use std::sync::Arc;
 use std::time::Instant;
 
+use clap::Parser;
 use futures_util::StreamExt;
 use futures_util::stream::select;
-use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 use tokio_tungstenite::tungstenite::Message;
 use tonic::transport::Server;
 
@@ -13,16 +14,23 @@ use crate::modules::types::{AggregatedOrderBook, Exchange, OrderBookUpdate};
 mod grpc_service;
 mod modules;
 
+#[derive(Parser)]
+struct Args {
+    #[arg(default_value = "ethbtc")]
+    symbol: String,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize tracing
     tracing_subscriber::fmt::init();
+    let args = Args::parse();
 
-    let symbol = "ethbtc";
+    let symbol = args.symbol.to_lowercase();
 
     // Create empty aggregated orderbook initially
     let agg = AggregatedOrderBook::new();
-    let agg_shared = Arc::new(Mutex::new(agg));
+    let agg_shared = Arc::new(RwLock::new(agg));
 
     // Start gRPC server
     let agg_for_grpc = Arc::clone(&agg_shared);
@@ -64,24 +72,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Listen to the combined stream and handle the updates
     let websocket_task = tokio::spawn(async move {
         loop {
-            // Connect to streams first to avoid diff gap
+            // Connect to streams first to avoid missing updates
             tracing::info!("Connecting to exchange streams...");
-            let bitstamp_stream = modules::bitstamp::get_bitstamp_stream(symbol).await;
-            let binance_stream = modules::binance::get_binance_stream(symbol).await;
+            let (_bitstamp_sink, bitstamp_stream) =
+                modules::bitstamp::get_bitstamp_stream(&symbol).await;
+            let (_binance_sink, binance_stream) =
+                modules::binance::get_binance_stream(&symbol).await;
 
             // Then fetch fresh snapshots concurrently and merge
             let snapshot_start = Instant::now();
             tracing::info!("Fetching fresh snapshots in parallel after connecting streams...");
             let (binance_snapshot, bitstamp_snapshot) = tokio::join!(
-                modules::binance::get_binance_snapshot(symbol),
-                modules::bitstamp::get_bitstamp_snapshot(symbol)
+                modules::binance::get_binance_snapshot(&symbol),
+                modules::bitstamp::get_bitstamp_snapshot(&symbol)
             );
             tracing::info!(
                 "Snapshots fetched in parallel in {}ms",
                 snapshot_start.elapsed().as_millis()
             );
             {
-                let mut agg = agg_for_websocket.lock().await;
+                let mut agg = agg_for_websocket.write().await;
                 agg.merge_snapshots(vec![bitstamp_snapshot, binance_snapshot]);
                 tracing::info!("Snapshots merged into aggregated orderbook");
             }
@@ -106,14 +116,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         update.update_id
                                     );
                                     // tracing::info!("Received Bitstamp update: {:?}", update);
-                                    let mut agg = agg_for_websocket.lock().await;
                                     let bitstamp_update_start = Instant::now();
-                                    match agg.handle_update(update) {
+                                    let res = {
+                                        let mut agg = agg_for_websocket.write().await;
+                                        agg.handle_update(update)
+                                    };
+                                    match res {
                                         Ok(_) => {
-                                            tracing::info!(
-                                                "Bitstamp update took {}ms to apply successfully",
-                                                bitstamp_update_start.elapsed().as_millis()
-                                            );
+                                            // tracing::info!(
+                                            //     "Bitstamp update took {}ms to apply successfully",
+                                            //     bitstamp_update_start.elapsed().as_millis()
+                                            // );
                                         }
                                         Err(e) => {
                                             tracing::error!(
@@ -148,14 +161,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         update.update_id
                                     );
                                     // tracing::info!("Received Binance update: {:?}", update);
-                                    let mut agg = agg_for_websocket.lock().await;
                                     let binance_update_start = Instant::now();
-                                    match agg.handle_update(update) {
+                                    let res = {
+                                        let mut agg = agg_for_websocket.write().await;
+                                        agg.handle_update(update)
+                                    };
+                                    match res {
                                         Ok(_) => {
-                                            tracing::info!(
-                                                "Binance update took {}ms to apply successfully",
-                                                binance_update_start.elapsed().as_millis()
-                                            );
+                                            // tracing::info!(
+                                            //     "Binance update took {}ms to apply successfully",
+                                            //     binance_update_start.elapsed().as_millis()
+                                            // );
                                         }
                                         Err(e) => {
                                             tracing::error!(
@@ -191,26 +207,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // Reconnection delay
             tracing::info!("Reconnecting to exchanges in 2 seconds...");
             tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-
-            // On disconnection, fetch new snapshots in parallel and merge them
-            tracing::info!("Disconnected from exchanges, fetching fresh snapshots in parallel...");
-            let start = std::time::Instant::now();
-
-            // Fetch both snapshots concurrently
-            let (binance_snapshot, bitstamp_snapshot) = tokio::join!(
-                modules::binance::get_binance_snapshot(symbol),
-                modules::bitstamp::get_bitstamp_snapshot(symbol)
-            );
-
-            let snapshot_duration = start.elapsed();
-            tracing::info!(
-                "Reconnection snapshots fetched in parallel in {}ms",
-                snapshot_duration.as_millis()
-            );
-
-            let mut agg = agg_for_websocket.lock().await;
-            agg.merge_snapshots(vec![bitstamp_snapshot, binance_snapshot]);
-            tracing::info!("Merged new snapshots after disconnection");
         }
     });
 

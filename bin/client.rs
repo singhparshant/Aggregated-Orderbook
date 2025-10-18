@@ -32,35 +32,45 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     while let Some(result) = stream.next().await {
         match result {
             Ok(summary) => {
-                // Print in JSON-like format
-                println!("{{");
-                println!("  \"spread\": {:.8},", summary.spread);
+                // Clear screen and move cursor to top
+                print!("\x1B[2J\x1B[1;1H");
 
-                println!("  \"asks\": [");
-                for (i, ask) in summary.asks.iter().enumerate() {
-                    println!(
-                        "    {{ \"exchange\": \"{}\", \"price\": {:.8}, \"quantity\": {:.8} }}{}",
-                        ask.exchange,
-                        ask.price,
-                        ask.amount,
-                        if i < summary.asks.len() - 1 { "," } else { "" }
-                    );
-                }
-                println!("  ],");
-
-                println!("  \"bids\": [");
-                for (i, bid) in summary.bids.iter().enumerate() {
-                    println!(
-                        "    {{ \"exchange\": \"{}\", \"price\": {:.8}, \"quantity\": {:.8} }}{}",
-                        bid.exchange,
-                        bid.price,
-                        bid.amount,
-                        if i < summary.bids.len() - 1 { "," } else { "" }
-                    );
-                }
-                println!("  ]");
-                println!("}}");
+                // Header
+                println!("╔══════════════════════════════════════════════════════════════╗");
+                println!("║                    ORDERBOOK AGGREGATOR                     ║");
+                println!("╚══════════════════════════════════════════════════════════════╝");
                 println!();
+
+                // Spread
+                println!("📊 Spread: {:.8}", summary.spread);
+                println!();
+
+                // Asks (Sell orders)
+                println!("🔴 ASKS (Sell Orders)");
+                println!("┌─────────────┬──────────────┬──────────────┐");
+                println!("│ Exchange    │ Price        │ Quantity     │");
+                println!("├─────────────┼──────────────┼──────────────┤");
+                for ask in &summary.asks {
+                    println!(
+                        "│ {:<11} │ {:<12.8} │ {:<12.8} │",
+                        ask.exchange, ask.price, ask.amount
+                    );
+                }
+                println!("└─────────────┴──────────────┴──────────────┘");
+                println!();
+
+                // Bids (Buy orders)
+                println!("🟢 BIDS (Buy Orders)");
+                println!("┌─────────────┬──────────────┬──────────────┐");
+                println!("│ Exchange    │ Price        │ Quantity     │");
+                println!("├─────────────┼──────────────┼──────────────┤");
+                for bid in &summary.bids {
+                    println!(
+                        "│ {:<11} │ {:<12.8} │ {:<12.8} │",
+                        bid.exchange, bid.price, bid.amount
+                    );
+                }
+                println!("└─────────────┴──────────────┴──────────────┘");
             }
             Err(e) => {
                 eprintln!("Error receiving update: {}", e);
