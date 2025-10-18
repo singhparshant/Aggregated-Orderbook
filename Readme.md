@@ -1,29 +1,97 @@
-Keyrock MM Rust Task
+# Keyrock MM Rust Task
 
-What this does (high level)
-- Connects to Binance and Bitstamp order book feeds for a single symbol (currently `ethusdt`).
-- Aggregates price levels into a unified book (per price bucket → per-exchange levels).
-- Keeps the top 10 bids (highest) and top 10 asks (lowest) up to date.
-- Serves a streaming gRPC endpoint that pushes `Summary` messages (spread, bids, asks).
+## Overview
+Real-time order book aggregation system that combines data from Binance and Bitstamp exchanges, maintaining a unified order book and serving it via gRPC streaming.
 
-Prereqs
-- Rust toolchain (stable). No manual proto step needed; Cargo runs `build.rs` which invokes `tonic-build`.
+## Approach - Step by Step
 
-Build
-- Compile both binaries:
-  - `cargo build`  (or run steps below which also build)
+### 1. **WebSocket Connection Strategy**
+- Connect to both Binance and Bitstamp WebSocket streams **first**
+- Then fetch fresh snapshots from both exchanges
+- This prevents missing updates between snapshot fetch and stream connection
 
-Run the server (gRPC producer)
-- Starts WebSocket consumers, aggregates the book, and serves gRPC on `127.0.0.1:5002`.
-- Command:
-  - `cargo run --bin keyrock_mm_rust_task`
+### 2. **Data Structure Design**
+- **BTreeMap** with scaled price levels as keys
+- **Value**: HashMap<exchange, OrderLevel> for each price bucket
+- **Why BTreeMap**: Keeps price levels naturally ordered (crucial for bid/ask ordering)
+- **Why HashMap inside**: Allows multiple exchanges at the same price level
 
-Run the client (gRPC consumer)
-- Connects to `127.0.0.1:5002`, subscribes to `BookSummary`, prints streamed summaries.
-- In a separate shell after the server is running:
-  - `cargo run --bin client`
+### 3. **Snapshot Merging**
+- Fetch initial snapshots from both exchanges
+- Merge into aggregated order book
+- Start processing real-time updates from streams
 
-Notes
-- Proto is at `protos/orderbook.proto`. `build.rs` compiles it automatically on build.
-- The server method is `book_summary` (from `rpc BookSummary(...)`).
-- Change the trading pair by editing `symbol` in `src/main.rs`.
+### 4. **Concurrency Control**
+- **Read locks (RwLock)**: Multiple gRPC clients can read simultaneously
+- **Write locks (RwLock)**: Exclusive access for WebSocket updates
+- **Lock scope**: Minimized to prevent blocking
+
+### 5. **Disconnection Handling**
+- On any stream disconnection → restart from scratch
+- Fetch fresh snapshots again
+- Reconnect to both streams
+- Ensures data consistency after reconnection
+
+### 6. **Update Processing**
+- Apply real-time updates to aggregated book
+- Validate update IDs to prevent out-of-order updates
+- Early return on stale updates (no retries/sleeps in hot path)
+
+## Architecture
+
+```
+WebSocket Streams → Snapshot Fetch → Merge → Real-time Updates
+       ↓                    ↓           ↓           ↓
+   [Binance]           [Snapshot]   [Aggregated]  [gRPC Stream]
+   [Bitstamp]          [Snapshot]   [OrderBook]   [to Clients]
+```
+
+## Data Flow
+
+1. **Connect** to WebSocket streams (both exchanges)
+2. **Fetch** fresh snapshots in parallel
+3. **Merge** snapshots into aggregated order book
+4. **Process** real-time updates as they arrive
+5. **Serve** top 10 bids/asks via gRPC streaming
+6. **Handle** disconnections by restarting the entire flow
+
+## Prerequisites
+- Rust toolchain (stable)
+- No manual proto step needed; Cargo runs `build.rs` which invokes `tonic-build`
+
+## Build & Run
+
+### Build
+```bash
+cargo build
+```
+
+### Run Server (gRPC producer)
+```bash
+cargo run --bin keyrock_mm_rust_task
+```
+- Starts WebSocket consumers, aggregates the book
+- Serves gRPC on `127.0.0.1:5002`
+
+### Run Client (gRPC consumer)
+```bash
+cargo run --bin client
+```
+- Connects to `127.0.0.1:5002`
+- Subscribes to `BookSummary`, prints streamed summaries
+
+## Potential Improvements
+
+### Memory Efficiency
+- **Current**: Maintains full order book, returns top 10 levels
+- **Improvement**: Consider using Vector instead of HashMap for 2 exchanges (minor optimization)
+- **Trade-off**: HashMap provides O(1) exchange lookup vs Vector O(n) but with only 2 exchanges, difference is negligible
+
+### Production Readiness
+- **Error Handling**: More robust error recovery strategies
+- **Rate Limiting**: Handle high-frequency updates more efficiently  
+- **Monitoring**: Add metrics for update latency, connection health
+- **Configuration**: Make exchange endpoints and symbols configurable
+- **Testing**: Add comprehensive unit and integration tests
+- **Logging**: Structured logging with different levels
+- **Graceful Shutdown**: Proper cleanup on termination signals 
