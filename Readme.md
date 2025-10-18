@@ -63,10 +63,15 @@ cargo build
 
 ### Run Server (gRPC producer)
 ```bash
+# Default pair (ethbtc)
 cargo run --bin keyrock_mm_rust_task
+
+# Custom pair
+cargo run --bin keyrock_mm_rust_task -- <pair>
 ```
 - Starts WebSocket consumers, aggregates the book
 - Serves gRPC on `127.0.0.1:5002`
+- Examples: `cargo run --bin keyrock_mm_rust_task -- btcusdt`
 
 ### Run Client (gRPC consumer)
 ```bash
