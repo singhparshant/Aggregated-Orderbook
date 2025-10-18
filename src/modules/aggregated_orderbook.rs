@@ -21,6 +21,7 @@ impl AggregatedOrderBook {
     }
 
     /// Prune the orderbook to keep only top 20 bids and asks to avoid excessive memory usage
+    /// we can enable this if we face memory issues
     pub fn prune(&mut self) {
         // Keep only top 20 bids (highest prices)
         if self.bids.len() > 20 {
@@ -39,6 +40,7 @@ impl AggregatedOrderBook {
         }
     }
 
+    /// Merge snapshots from both exchanges into the aggregated orderbook
     pub fn merge_snapshots(&mut self, snapshots: Vec<OrderBook>) {
         for snapshot in snapshots {
             for level in snapshot.bids.iter() {
@@ -70,7 +72,7 @@ impl AggregatedOrderBook {
         // self.prune();
     }
 
-    /// Handle update with robust error handling and retries
+    /// Handle update from one of the exchanges
     pub fn handle_update(&mut self, update: OrderBookUpdate) -> Result<(), String> {
         match self.try_apply_update(&update) {
             Ok(_) => {
@@ -95,7 +97,7 @@ impl AggregatedOrderBook {
         }
     }
 
-    /// Try to apply update with error handling
+    /// Try to apply update from one of the exchanges
     fn try_apply_update(&mut self, update: &OrderBookUpdate) -> Result<(), String> {
         // Only apply update if the update id is greater than the last update id; otherwise ignore
         if self.validate_update(update).is_err() {
@@ -148,7 +150,7 @@ impl AggregatedOrderBook {
         Ok(())
     }
 
-    /// Validate update data
+    /// ignore out of order updates
     fn validate_update(&self, update: &OrderBookUpdate) -> Result<(), String> {
         // Validate update ID sequencing
         let exchange_key = update.exchange.to_lowercase();
@@ -196,7 +198,7 @@ impl AggregatedOrderBook {
         Ok(())
     }
 
-    /// Try to upsert level with error handling
+    /// insert or update level in the orderbook
     fn try_upsert_level(
         map: &mut BTreeMap<usize, HashMap<String, OrderLevel>>,
         level: &OrderLevel,
@@ -221,7 +223,7 @@ impl AggregatedOrderBook {
         Ok(())
     }
 
-    /// Try to recompute spread with error handling
+    /// recompute spread from the best bid and ask prices
     fn try_recompute_spread(&mut self) -> Result<(), String> {
         let best_bid_idx = self.bids.keys().rev().next().copied().unwrap_or(0);
         let best_ask_idx = self.asks.keys().next().copied().unwrap_or(0);
@@ -258,6 +260,7 @@ impl AggregatedOrderBook {
         Ok(())
     }
 
+    /// get top 10 bids and asks from the aggregated orderbook
     pub fn get_top10_snapshot(&self) -> Top10Snapshot {
         // Get top 10 price levels for bids (highest prices first)
         let bid_levels: Vec<OrderLevel> = self
