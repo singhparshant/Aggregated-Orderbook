@@ -47,25 +47,6 @@ pub struct OrderBookUpdate {
 }
 
 impl OrderBookUpdate {
-    // pub fn from_json(text: String) -> Self {
-    //     let v: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
-    //     if let Some(u) = Self::parse_binance_diff(&v) {
-    //         return u;
-    //     }
-    //     if let Some(u) = Self::parse_binance_snapshot(&v) {
-    //         return u;
-    //     }
-    //     if let Some(u) = Self::parse_bitstamp(&v) {
-    //         return u;
-    //     }
-    //     Self {
-    //         exchange: Exchange::Binance.as_str(),
-    //         update_id: 0,
-    //         bids: vec![],
-    //         asks: vec![],
-    //     }
-    // }
-
     pub fn from_binance_json(text: &str) -> Option<Self> {
         let v: Value = serde_json::from_str(text).ok()?;
         Self::parse_binance_diff(&v)
@@ -112,42 +93,6 @@ impl OrderBookUpdate {
             asks,
         })
     }
-
-    // fn parse_binance_snapshot(v: &Value) -> Option<Self> {
-    //     let bids = v.get("bids")?.as_array()?;
-    //     let asks = v.get("asks")?.as_array()?;
-    //     let update_id = v.get("lastUpdateId").and_then(|x| x.as_u64()).unwrap_or(0);
-    //     let bids = bids
-    //         .iter()
-    //         .filter_map(|arr| {
-    //             let price = arr.get(0).and_then(|x| x.as_str())?.parse::<f64>().ok()?;
-    //             let amount = arr.get(1).and_then(|x| x.as_str())?.parse::<f64>().ok()?;
-    //             Some(OrderLevel {
-    //                 exchange: Exchange::Binance.as_str(),
-    //                 price,
-    //                 amount,
-    //             })
-    //         })
-    //         .collect();
-    //     let asks = asks
-    //         .iter()
-    //         .filter_map(|arr| {
-    //             let price = arr.get(0).and_then(|x| x.as_str())?.parse::<f64>().ok()?;
-    //             let amount = arr.get(1).and_then(|x| x.as_str())?.parse::<f64>().ok()?;
-    //             Some(OrderLevel {
-    //                 exchange: Exchange::Binance.as_str(),
-    //                 price,
-    //                 amount,
-    //             })
-    //         })
-    //         .collect();
-    //     Some(Self {
-    //         exchange: Exchange::Binance.as_str(),
-    //         update_id,
-    //         bids,
-    //         asks,
-    //     })
-    // }
 
     fn parse_bitstamp(v: &Value) -> Option<Self> {
         if v.get("event").and_then(|e| e.as_str())? != "data" {
