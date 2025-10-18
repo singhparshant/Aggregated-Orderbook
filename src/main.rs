@@ -48,26 +48,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Start WebSocket processing
     let agg_for_websocket = Arc::clone(&agg_shared);
-    // while let Some(msg_result) = binance_stream.next().await {
-    //     match msg_result {
-    //         Ok(msg) => match msg {
-    //             Message::Text(text) => {
-    //                 println!("Received Binance updat11111e: {}", text);
-    //                 if let Some(update) = OrderBookUpdate::from_binance_json(&text) {
-    //                     tracing::info!(
-    //                         "Received Binance update: {} bids, {} asks",
-    //                         update.bids.len(),
-    //                         update.asks.len()
-    //                     );
-    //                     // let mut agg = agg_for_websocket.lock().await;
-    //                     // agg.handle_update(update);
-    //                 }
-    //             }
-    //             _ => {}
-    //         },
-    //         Err(e) => eprintln!("Binance stream error: {}", e),
-    //     }
-    // }
 
     // Listen to the combined stream and handle the updates
     let websocket_task = tokio::spawn(async move {

@@ -82,7 +82,6 @@ cargo run --bin client
 
 ## Potential Improvements
 
-### Memory Efficiency
 - Precision: Currently using precision up to 9 decimals for price scaling, could be done on per pair precision.
 - Maintains full order book, returns top 10 levels. We could consider pruning the order book to keep only top 10 levels to avoid excessive memory usage(already implemented in the code, didn't enable yet).
 - Consider using Vector instead of HashMap for 2 exchanges (minor optimization)
