@@ -103,21 +103,15 @@ impl AggregatedOrderBook {
 
     /// Try to apply update with error handling
     fn try_apply_update(&mut self, update: &OrderBookUpdate) -> Result<(), String> {
-        // Validate update data
-        self.validate_update(update)?;
+        // Only apply update if the updat id is greater than the last update id, else return ok
+        let validation_result = self.validate_update(update);
+        if let Err(e) = validation_result {
+            return Ok(());
+        }
 
         // Update last update ID
         self.last_update_id
             .insert(update.exchange.to_lowercase(), update.update_id);
-
-        // Debug: Log update details
-        tracing::debug!(
-            "Applying {} update (ID: {}): {} bids, {} asks",
-            update.exchange,
-            update.update_id,
-            update.bids.len(),
-            update.asks.len()
-        );
 
         // Apply bids with error handling and detailed logging
         for level in update.bids.iter() {
@@ -183,29 +177,21 @@ impl AggregatedOrderBook {
 
     /// Validate update data
     fn validate_update(&self, update: &OrderBookUpdate) -> Result<(), String> {
-        // Check for invalid prices
-        for level in update.bids.iter().chain(update.asks.iter()) {
-            if level.price < 0.0 {
-                return Err(format!("Invalid price: {}", level.price));
-            }
-            if level.amount < 0.0 {
-                return Err(format!("Invalid amount: {}", level.amount));
-            }
-        }
-
         // Validate update ID sequencing
         let exchange_key = update.exchange.to_lowercase();
         if let Some(&last_id) = self.last_update_id.get(&exchange_key) {
             match update.exchange {
                 "binance" => {
-                    // For Binance, the "u" value (final update ID) should be greater than our last update ID
                     if update.update_id <= last_id {
                         tracing::warn!(
                             "Binance update ID {} is not greater than last ID {}",
                             update.update_id,
                             last_id
                         );
-                        return Ok(());
+                        return Err(format!(
+                            "Binance update ID {} is not greater than last ID {}",
+                            update.update_id, last_id
+                        ));
                     }
                 }
                 "bitstamp" => {
@@ -216,13 +202,19 @@ impl AggregatedOrderBook {
                             update.update_id,
                             last_id
                         );
-                        return Ok(());
+                        return Err(format!(
+                            "Bitstamp update ID {} is not greater than last ID {}",
+                            update.update_id, last_id
+                        ));
                     }
                 }
                 _ => {
                     // For other exchanges, just ensure it's greater
                     if update.update_id <= last_id {
-                        return Ok(());
+                        return Err(format!(
+                            "Update ID {} is not greater than last ID {} for exchange {}",
+                            update.update_id, last_id, update.exchange
+                        ));
                     }
                 }
             }
@@ -301,33 +293,6 @@ impl AggregatedOrderBook {
     }
 
     pub fn get_top10_snapshot(&self) -> Top10Snapshot {
-        // Write price levels and exchanges for bids to file
-        // let mut output = String::new();
-        // output.push_str("Bids (price level -> exchanges):\n");
-        // for (price_idx, exchange_map) in self.bids.iter() {
-        //     let exchanges: Vec<String> = exchange_map.keys().cloned().collect();
-        //     output.push_str(&format!(
-        //         "  Price Level {}: Exchanges {:?}\n",
-        //         price_idx, exchanges
-        //     ));
-        // }
-
-        // // Write price levels and exchanges for asks to file
-        // output.push_str("Asks (price level -> exchanges):\n");
-        // for (price_idx, exchange_map) in self.asks.iter() {
-        //     let exchanges: Vec<String> = exchange_map.keys().cloned().collect();
-        //     output.push_str(&format!(
-        //         "  Price Level {}: Exchanges {:?}\n",
-        //         price_idx, exchanges
-        //     ));
-        // }
-        // output.push_str(&format!("Spread: {:#?}\n", self.spread));
-
-        // Write to file
-        // if let Err(e) = std::fs::write("out.txt", output) {
-        //     eprintln!("Failed to write to out.txt: {}", e);
-        // }
-
         // Get top 10 price levels for bids (highest prices first)
         let bid_levels: Vec<OrderLevel> = self
             .bids
@@ -352,12 +317,8 @@ impl AggregatedOrderBook {
         }
     }
 
-    // Removed invalid helper that attempted to return Vec<OrderLevel> into BTreeMap fields
-
     #[inline]
     fn price_index(price: f64) -> usize {
-        // Use a more precise method to avoid precision loss
-        // Convert to string with fixed precision, then parse back
         let scaled = (price * PRICE_SCALE).round();
         if scaled.is_finite() && scaled >= 0.0 {
             scaled as usize

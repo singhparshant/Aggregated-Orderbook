@@ -58,8 +58,8 @@ fn merge_snapshots_keeps_all_levels_and_combines_exchanges() {
     let best_ask_price = ask_bucket.values().next().unwrap().price;
     let expected_spread = best_ask_price - best_bid_price;
     println!("expected_spread: {}", expected_spread);
-    println!("agg.get_spread(): {}", agg.get_spread());
-    assert!((agg.get_spread() - expected_spread).abs() < 1e-9);
+    println!("agg.spread: {}", agg.spread);
+    assert!((agg.spread - expected_spread).abs() < 1e-9);
 }
 
 #[test]

@@ -105,6 +105,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         update.asks.len(),
                                         update.update_id
                                     );
+                                    // tracing::info!("Received Bitstamp update: {:?}", update);
                                     let mut agg = agg_for_websocket.lock().await;
                                     let bitstamp_update_start = Instant::now();
                                     match agg.handle_update(update) {
@@ -122,11 +123,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                             );
                                         }
                                     }
-                                    // println!(
-                                    //     "After bitstamp update: {:?}",
-                                    //     agg.get_top10_snapshot()
-                                    // );
-                                    println!("Spread after bitstamp update: {:.8}", agg.spread);
                                 }
                             }
                             Message::Ping(_payload) => {
@@ -151,6 +147,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         update.asks.len(),
                                         update.update_id
                                     );
+                                    // tracing::info!("Received Binance update: {:?}", update);
                                     let mut agg = agg_for_websocket.lock().await;
                                     let binance_update_start = Instant::now();
                                     match agg.handle_update(update) {
@@ -168,11 +165,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                             );
                                         }
                                     }
-                                    // println!(
-                                    //     "After binance update: {:?}",
-                                    //     agg.get_top10_snapshot()
-                                    // );
-                                    println!("Spread after binance update: {:.8}", agg.spread);
                                 }
                             }
                             Message::Ping(_payload) => {
