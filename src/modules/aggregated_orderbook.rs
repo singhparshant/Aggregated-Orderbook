@@ -228,34 +228,7 @@ impl AggregatedOrderBook {
         let best_bid_idx = self.bids.keys().rev().next().copied().unwrap_or(0);
         let best_ask_idx = self.asks.keys().next().copied().unwrap_or(0);
 
-        // Get the best bid price and exchange
-        let best_bid_price = best_bid_idx as f64 / PRICE_SCALE;
-        let best_bid_exchanges: Vec<String> = self
-            .bids
-            .get(&best_bid_idx)
-            .map(|exchange_map| exchange_map.keys().cloned().collect())
-            .unwrap_or_default();
-
-        // Get the best ask price and exchange
-        let best_ask_price = best_ask_idx as f64 / PRICE_SCALE;
-        let best_ask_exchanges: Vec<String> = self
-            .asks
-            .get(&best_ask_idx)
-            .map(|exchange_map| exchange_map.keys().cloned().collect())
-            .unwrap_or_default();
-
-        tracing::debug!(
-            "Best bid: {:.8} (exchanges: {:?})",
-            best_bid_price,
-            best_bid_exchanges
-        );
-        tracing::debug!(
-            "Best ask: {:.8} (exchanges: {:?})",
-            best_ask_price,
-            best_ask_exchanges
-        );
         self.spread = (best_ask_idx as f64 - best_bid_idx as f64) / PRICE_SCALE;
-        tracing::debug!("Spread: {:.8}", self.spread);
 
         Ok(())
     }
