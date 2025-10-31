@@ -1,4 +1,4 @@
-# Keyrock MM Rust Task
+# Aggregated Orderbook
 
 ## Overview
 Real-time order book aggregation system that combines data from Binance and Bitstamp exchanges, maintaining a unified order book and serving it via gRPC streaming.
