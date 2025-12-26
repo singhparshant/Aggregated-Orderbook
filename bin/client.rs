@@ -23,6 +23,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Connected to gRPC server. Starting to receive orderbook updates...");
 
+    // Hide cursor for cleaner display
+    print!("\x1B[?25l");
+
     // Create an empty request
     let request = Request::new(Empty {});
 
@@ -32,8 +35,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     while let Some(result) = stream.next().await {
         match result {
             Ok(summary) => {
-                // Clear screen and move cursor to top
-                print!("\x1B[2J\x1B[1;1H");
+                // Move cursor to top without clearing screen
+                print!("\x1B[1;1H");
 
                 // Header
                 println!("╔══════════════════════════════════════════════════════════════╗");
@@ -71,6 +74,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     );
                 }
                 println!("└─────────────┴──────────────┴──────────────┘");
+
+                // Move cursor to bottom and flush output
+                println!("\n");
             }
             Err(e) => {
                 eprintln!("Error receiving update: {}", e);
@@ -79,6 +85,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    // Show cursor again before exiting
+    print!("\x1B[?25h");
     println!("Client disconnected");
     Ok(())
 }
