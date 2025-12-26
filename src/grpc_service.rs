@@ -69,7 +69,7 @@ impl OrderbookAggregator for OrderbookAggregatorService {
                 yield summary;
 
                 // Release the lock and wait
-                drop(agg);
+                // drop(agg);
 
                 // Sleep for 1 second
                 // tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
